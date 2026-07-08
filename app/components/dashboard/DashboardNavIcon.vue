@@ -47,6 +47,11 @@ defineProps<{ icon: string }>()
     <template v-else-if="icon === 'trending-up'">
       <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/>
     </template>
+    <!-- book -->
+    <template v-else-if="icon === 'book'">
+      <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+      <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+    </template>
     <!-- plus (default) -->
     <template v-else>
       <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>

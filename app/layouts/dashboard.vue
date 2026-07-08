@@ -13,6 +13,7 @@ const navItems = [
   { label: 'Siparişler',          href: '/dashboard/orders',          icon: 'box' },
   { label: 'Fiyatlandırma',       href: '/dashboard/pricing',         icon: 'tag' },
   { label: 'YZ Destekli Öneriler', href: '/dashboard/recommendations', icon: 'sparkles' },
+  { label: 'Yardım Kitapçığı',    href: '/dashboard/help',            icon: 'book' },
 ]
 
 const bottomItems = [
