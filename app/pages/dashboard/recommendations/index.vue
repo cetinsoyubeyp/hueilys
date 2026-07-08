@@ -357,19 +357,6 @@ function parseMarkdown(text: string): string {
           </p>
         </div>
 
-        <!-- Store selector -->
-        <div v-if="stores.length > 0" class="flex items-center gap-2">
-          <label for="store-select" class="text-xs font-semibold text-[var(--color-text-secondary)] whitespace-nowrap">Aktif Mağaza:</label>
-          <select
-            id="store-select"
-            v-model="activeStoreId"
-            class="form-input py-1.5 px-3 pr-8 rounded-xl text-xs font-semibold text-[var(--color-text-primary)] border-[var(--color-border)] bg-white cursor-pointer min-w-[160px]"
-          >
-            <option v-for="store in stores" :key="store.id" :value="store.id">
-              {{ store.store_name }} ({{ store.marketplace === 'trendyol' ? 'Trendyol' : store.marketplace }})
-            </option>
-          </select>
-        </div>
       </div>
 
       <!-- ─── Global Date Range Picker ──────────────────────────────────────── -->

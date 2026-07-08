@@ -855,8 +855,8 @@ Aktif ürünlerinizin kâr ve rakip fiyat dengesini inceledim:
       generationConfig: {
         temperature: 0.4,
         topP: 0.95,
-        // 2048 tokens is perfect for a concise, high-value report and generates much faster
-        maxOutputTokens: 2048
+        // 4096 tokens provides enough buffer to prevent truncation while prompt instructions enforce brevity
+        maxOutputTokens: 4096
       }
     }
 
