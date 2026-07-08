@@ -184,12 +184,14 @@ export default defineEventHandler(async (event) => {
 
     // ── Orders (for general & pricing modes — status, volume, revenue) ────────
     try {
-      console.log('[Gemini Analyze] Fetching orders...')
-      const oRes: any = await $fetch(`https://apigw.trendyol.com/integration/order/sellers/${store.seller_id}/orders`, {
+      console.log('[Gemini Analyze] Fetching orders (aggregated)...')
+      const pageSize = 200
+      
+      const firstPage: any = await $fetch(`https://apigw.trendyol.com/integration/order/sellers/${store.seller_id}/orders`, {
         method: 'GET',
         params: {
           page: 0,
-          size: 200,
+          size: pageSize,
           startDate: windowStart,
           endDate: windowEnd,
           orderByField: 'CreatedDate',
@@ -197,12 +199,42 @@ export default defineEventHandler(async (event) => {
         },
         headers: commonHeaders
       })
-      if (oRes?.content && Array.isArray(oRes.content)) {
-        orders = oRes.content
+
+      if (firstPage?.content && Array.isArray(firstPage.content)) {
+        orders.push(...firstPage.content)
+        const totalElements = firstPage.totalElements || 0
+        const maxPages = Math.min(Math.ceil(totalElements / pageSize), 20)
+
+        if (maxPages > 1) {
+          const fetchPromises = []
+          for (let pageIndex = 1; pageIndex < maxPages; pageIndex++) {
+            fetchPromises.push(
+              $fetch<any>(`https://apigw.trendyol.com/integration/order/sellers/${store.seller_id}/orders`, {
+                method: 'GET',
+                params: {
+                  page: pageIndex,
+                  size: pageSize,
+                  startDate: windowStart,
+                  endDate: windowEnd,
+                  orderByField: 'CreatedDate',
+                  orderByDirection: 'DESC'
+                },
+                headers: commonHeaders
+              })
+            )
+          }
+
+          const results = await Promise.allSettled(fetchPromises)
+          results.forEach((res) => {
+            if (res.status === 'fulfilled' && res.value?.content) {
+              orders.push(...res.value.content)
+            }
+          })
+        }
         isLive = true
-        console.log(`[Gemini Analyze] ✅ Orders: ${orders.length}`)
+        console.log(`[Gemini Analyze] ✅ Total Orders Aggregated: ${orders.length}`)
       } else {
-        console.warn('[Gemini Analyze] Orders unexpected shape:', JSON.stringify(oRes).substring(0, 200))
+        console.warn('[Gemini Analyze] Orders unexpected shape:', JSON.stringify(firstPage).substring(0, 200))
       }
     } catch (e: any) {
       console.error('[Gemini Analyze] ❌ Orders FAILED:', e.statusCode, e.statusMessage || e.message)
@@ -211,31 +243,57 @@ export default defineEventHandler(async (event) => {
     // ── Claims / İadeler (DEDICATED endpoint — NOT included in orders) ─────────
     // Trendyol returns live in /claims, NOT in /orders. This is the real return data.
     try {
-      console.log('[Gemini Analyze] Fetching claims (iadeler)...')
-      const cRes: any = await $fetch(`https://apigw.trendyol.com/integration/order/sellers/${store.seller_id}/claims`, {
+      console.log('[Gemini Analyze] Fetching claims (aggregated)...')
+      const pageSize = 200
+
+      const firstPage: any = await $fetch(`https://apigw.trendyol.com/integration/order/sellers/${store.seller_id}/claims`, {
         method: 'GET',
         params: {
           page: 0,
-          size: 200,
+          size: pageSize,
           startDate: windowStart,
-          endDate:   windowEnd
+          endDate: windowEnd
         },
         headers: commonHeaders
       })
-      // Claims response: { content: [...], totalElements, totalPages }
-      // Each claim has: claimItems[], claimDate, orderNumber, customerFirstName, customerLastName
-      // Each claimItem has: productName, barcode, productCode, quantity, price, claimItemStatus, claimReason (or reason)
-      if (cRes?.content && Array.isArray(cRes.content)) {
-        claims = cRes.content
+
+      if (firstPage?.content && Array.isArray(firstPage.content)) {
+        claims.push(...firstPage.content)
+        const totalElements = firstPage.totalElements || 0
+        const maxPages = Math.min(Math.ceil(totalElements / pageSize), 20)
+
+        if (maxPages > 1) {
+          const fetchPromises = []
+          for (let pageIndex = 1; pageIndex < maxPages; pageIndex++) {
+            fetchPromises.push(
+              $fetch<any>(`https://apigw.trendyol.com/integration/order/sellers/${store.seller_id}/claims`, {
+                method: 'GET',
+                params: {
+                  page: pageIndex,
+                  size: pageSize,
+                  startDate: windowStart,
+                  endDate: windowEnd
+                },
+                headers: commonHeaders
+              })
+            )
+          }
+
+          const results = await Promise.allSettled(fetchPromises)
+          results.forEach((res) => {
+            if (res.status === 'fulfilled' && res.value?.content) {
+              claims.push(...res.value.content)
+            }
+          })
+        }
         isLive = true
-        console.log(`[Gemini Analyze] ✅ Claims: ${claims.length}`)
-      } else if (Array.isArray(cRes)) {
-        // Some API versions return array directly
-        claims = cRes
+        console.log(`[Gemini Analyze] ✅ Total Claims Aggregated: ${claims.length}`)
+      } else if (Array.isArray(firstPage)) {
+        claims = firstPage
         isLive = true
         console.log(`[Gemini Analyze] ✅ Claims (direct array): ${claims.length}`)
       } else {
-        console.warn('[Gemini Analyze] Claims unexpected shape:', JSON.stringify(cRes).substring(0, 300))
+        console.warn('[Gemini Analyze] Claims unexpected shape:', JSON.stringify(firstPage).substring(0, 300))
       }
     } catch (e: any) {
       console.error('[Gemini Analyze] ❌ Claims FAILED:', e.statusCode, e.statusMessage || e.message)
@@ -340,12 +398,12 @@ export default defineEventHandler(async (event) => {
   const systemPersona = `Sen Hueilys e-ticaret analiz platformunun Kıdemli YZ Veri Danışmanısın.
 
 TEMEL KURALLAR — bunlara kesinlikle uy:
-1. **Her iddia veriyle kanıtlanmalı.** Bir öneri veya tespit sunarken daima verilen sayılara, yüzdelere veya ürün isimlerine atıf yap. "Veriye göre...", "Mağaza datanıza bakıldığında...", "Hesaplanan ₺X rakamına göre..." gibi ifadeler kullan.
-2. **Uydurma. Hiç.** Sana verilmeyen hiçbir satış rakamı, rakip fiyatı, puan veya metrik üretemezsin. Yalnızca sana sağlanan data setindeki sayıları kullan.
-3. **Hesaplamalarını göster.** Finansal etki rakamları sunarken formülü açıkça yaz (örn: "X iade × ₺Y fiyat = ₺Z gelir kaybı").
-4. **Önceliklendirme.** En yüksek finansal etkisi olan sorunu/fırsatı en üste koy.
-5. **Eyleme geçirilebilir ol.** Her öneri, mağaza sahibinin bugün uygulayabileceği somut bir adımla bitmelidir.
-6. Yanıtlarını Türkçe ver. Markdown formatını (başlıklar, kalın, listeler) profesyonelce kullan.`
+1. **Kısa, Doğrudan ve Çözüm Odaklı Ol:** Giriş, selamlaşma, platform övgüsü veya genel ifadeleri tamamen atla. Doğrudan analiz bulgularına ve çözüm önerilerine geç. Gereksiz uzun paragraflar yazma. Yanıtı kısa, yoğun ve madde madde sun.
+2. **Her İddia Kanıta Dayanmalı:** Bir öneri sunarken mutlaka sağlanan tablolardaki gerçek sayıları, yüzdeleri ve ürün isimlerini kullan. Uydurma veri kullanma.
+3. **Hesaplamalarını Göster:** Finansal etkileri formülüyle net göster (örn: "X adet iade × ₺Y fiyat = ₺Z ciro kaybı").
+4. **Önceliklendirme:** Finansal etkisi en büyük olan 3 temel kritik bulguyu/fırsatı belirle ve bunları en üste koy. Analizi en fazla 3 kritik aksiyon planı ile sınırla.
+5. **Eyleme Geçirilebilir Somut Çözümler:** Her gözlem, kullanıcının hemen bugün uygulayabileceği spesifik bir aksiyon adımı ile bitmelidir.
+6. Yanıtlarını Türkçe ver. Markdown formatını (kalın yazılar, temiz tablolar, listeler) profesyonelce kullan.`
 
   if (mode === 'returns') {
     // ── Parse claims data — Trendyol Claims API structure ─────────────────────
@@ -797,8 +855,8 @@ Aktif ürünlerinizin kâr ve rakip fiyat dengesini inceledim:
       generationConfig: {
         temperature: 0.4,
         topP: 0.95,
-        // 8192 tokens ensures full, untruncated responses even for detailed Turkish analyses
-        maxOutputTokens: 8192
+        // 2048 tokens is perfect for a concise, high-value report and generates much faster
+        maxOutputTokens: 2048
       }
     }
 
