@@ -39,7 +39,15 @@ async function fetchStores() {
   isFetching.value = false
 }
 
-onMounted(fetchStores)
+const showOnboarding = ref(false)
+
+onMounted(async () => {
+  await fetchStores()
+  const completed = localStorage.getItem('hueilys-onboarding-completed')
+  if (!completed) {
+    showOnboarding.value = true
+  }
+})
 
 // Reload after adding a store
 async function handleStoreSaved() {
@@ -144,6 +152,12 @@ const marketplaceColor: Record<string, string> = {
       v-if="showAddModal"
       @close="showAddModal = false"
       @saved="handleStoreSaved"
+    />
+
+    <!-- Onboarding wizard modal -->
+    <OnboardingModal
+      v-if="showOnboarding"
+      @close="showOnboarding = false"
     />
   </div>
 </template>
