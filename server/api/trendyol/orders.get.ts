@@ -6,6 +6,7 @@
  */
 
 import { serverSupabaseClient } from '#supabase/server'
+import fs from 'fs'
 
 const TRENDYOL_BASE = 'https://api.trendyol.com/sapigw/suppliers'
 
@@ -37,7 +38,7 @@ export default defineEventHandler(async (event) => {
   // ─── Fetch store credentials (RLS: only own stores) ───────────────────────
   const { data: store, error: storeError } = await client
     .from('stores')
-    .select('seller_id, api_key, api_secret, marketplace, store_name')
+    .select('seller_id, marketplace, store_name')
     .eq('id', storeId)
     .single()
 
@@ -49,13 +50,18 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: 'Desteklenmeyen pazaryeri' })
   }
 
-  if (!store.api_key || !store.api_secret || !store.seller_id) {
-    throw createError({ statusCode: 422, statusMessage: 'Mağaza API bilgileri eksik' })
+  // ─── Fetch decrypted credentials securely from Vault RPC ─────────────────
+  const { data: creds, error: credsError } = await client
+    .rpc('get_store_credentials', { p_store_id: storeId })
+    .single()
+
+  if (credsError || !creds || !creds.api_key || !creds.api_secret || !store.seller_id) {
+    throw createError({ statusCode: 422, statusMessage: 'Mağaza API bilgileri eksik veya yetkisiz' })
   }
 
   // ─── Build Trendyol request ───────────────────────────────────────────────
   const credentials = Buffer
-    .from(`${store.api_key}:${store.api_secret}`)
+    .from(`${creds.api_key}:${creds.api_secret}`)
     .toString('base64')
 
   // ─── Enforce 14-day max window (server-side safety net) ─────────────────────
@@ -86,16 +92,28 @@ export default defineEventHandler(async (event) => {
   if (query.orderNumber)
     trendyolParams.orderNumber = String(query.orderNumber)
 
-  // ─── Call Trendyol API ────────────────────────────────────────────────────
+  // Log request to debug log file
+  try {
+    const logPath = 'c:/Users/Çetin/Desktop/Hueilys/debug_orders.log'
+    const logMsg = `[${new Date().toISOString()}] REQUEST query.startDate=${query.startDate} query.endDate=${query.endDate} clampedStart=${clampedStart} params=${JSON.stringify(trendyolParams)}\n`
+    fs.appendFileSync(logPath, logMsg)
+  } catch (e) {}
+
+  // ─── Call Trendyol API (Aggregated Fetch for All Pages) ────────────────────
   try {
     const url = `${TRENDYOL_BASE}/${store.seller_id}/orders`
-    console.log('[Trendyol Proxy] Request:', {
-      url,
-      params: trendyolParams,
-      authHeader: `Basic ${credentials.substring(0, 10)}...`
-    })
+    const pageSize = 200
+    
+    // First request: Page 0, Size 200
+    const firstParams = {
+      ...trendyolParams,
+      page: 0,
+      size: pageSize,
+    }
 
-    const data = await $fetch(
+    console.log('[Trendyol Proxy] Fetching page 0...', { url, params: firstParams })
+
+    const firstPage: any = await $fetch(
       url,
       {
         headers: {
@@ -103,18 +121,77 @@ export default defineEventHandler(async (event) => {
           'User-Agent':   `${store.seller_id} - SelfIntegration`,
           'Content-Type': 'application/json',
         },
-        params: trendyolParams,
+        params: firstParams,
       },
     )
 
-    console.log('[Trendyol Proxy] Success Response:', {
-      totalElements: (data as any)?.totalElements,
-      totalPages: (data as any)?.totalPages,
-      contentCount: (data as any)?.content?.length,
-      rawKeys: Object.keys(data as any)
+    const allOrders = [...(firstPage?.content || [])]
+    const totalElements = firstPage?.totalElements || 0
+    const maxPages = Math.min(Math.ceil(totalElements / pageSize), 20)
+
+    console.log('[Trendyol Proxy] Page 0 loaded:', {
+      totalElements,
+      maxPages,
+      contentCount: firstPage?.content?.length
     })
 
-    return data
+    if (maxPages > 1) {
+      const fetchPromises = []
+      for (let pageIndex = 1; pageIndex < maxPages; pageIndex++) {
+        const pageParams = {
+          ...trendyolParams,
+          page: pageIndex,
+          size: pageSize,
+        }
+        fetchPromises.push(
+          $fetch<any>(
+            url,
+            {
+              headers: {
+                Authorization:  `Basic ${credentials}`,
+                'User-Agent':   `${store.seller_id} - SelfIntegration`,
+                'Content-Type': 'application/json',
+              },
+              params: pageParams,
+            }
+          )
+        )
+      }
+
+      const results = await Promise.allSettled(fetchPromises)
+      results.forEach((res, index) => {
+        if (res.status === 'fulfilled' && res.value?.content) {
+          allOrders.push(...res.value.content)
+        } else {
+          console.error(`[Trendyol Proxy] Failed to fetch page ${index + 1}:`, res.status === 'rejected' ? res.reason : 'No content')
+        }
+      })
+    }
+
+    // Sort aggregated orders by orderDate desc
+    allOrders.sort((a, b) => b.orderDate - a.orderDate)
+
+    const result = {
+      content: allOrders,
+      totalElements: allOrders.length,
+      totalPages: 1,
+      page: 0,
+      size: allOrders.length,
+    }
+
+    console.log('[Trendyol Proxy] Success Response (Aggregated):', {
+      totalElements: result.totalElements,
+      contentCount: result.content.length
+    })
+
+    // Log response to debug log file
+    try {
+      const logPath = 'c:/Users/Çetin/Desktop/Hueilys/debug_orders.log'
+      const logMsg = `[${new Date().toISOString()}] RESPONSE count=${result.content.length} totalElements=${result.totalElements} firstOrderDate=${result.content[0]?.orderDate}\n`
+      fs.appendFileSync(logPath, logMsg)
+    } catch (e) {}
+
+    return result
   }
   catch (err: unknown) {
     const e = err as { statusCode?: number; statusMessage?: string; message?: string; data?: any }
@@ -124,6 +201,12 @@ export default defineEventHandler(async (event) => {
       message: e.message,
       responseData: e.data
     })
+    // Log error to debug log file
+    try {
+      const logPath = 'c:/Users/Çetin/Desktop/Hueilys/debug_orders.log'
+      const logMsg = `[${new Date().toISOString()}] ERROR status=${e.statusCode} msg=${e.statusMessage || e.message} data=${JSON.stringify(e.data)}\n`
+      fs.appendFileSync(logPath, logMsg)
+    } catch (ex) {}
     throw createError({
       statusCode:    e.statusCode    || 502,
       statusMessage: e.statusMessage || e.message || 'Trendyol API erişim hatası',

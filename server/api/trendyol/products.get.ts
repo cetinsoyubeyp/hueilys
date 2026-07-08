@@ -9,6 +9,10 @@ import { serverSupabaseClient } from '#supabase/server'
 
 const TRENDYOL_V2_BASE = 'https://apigw.trendyol.com/integration/product/sellers'
 
+// Simple in-memory cache for products (TTL: 30 seconds)
+const productsCache = new Map<string, { data: any; expiry: number }>()
+const CACHE_TTL_MS = 30 * 1000
+
 export default defineEventHandler(async (event) => {
   // ─── Auth via Supabase (RLS applied automatically) ────────────────────────
   const client = await serverSupabaseClient(event)
@@ -26,6 +30,13 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: 'storeId parametresi gerekli' })
   }
 
+  // ─── 0. Check in-memory cache ─────────────────────────────────────────────
+  const cached = productsCache.get(storeId)
+  if (cached && cached.expiry > Date.now()) {
+    console.log(`[Products Proxy V2] Returning cached catalog for store ${storeId}`)
+    return cached.data
+  }
+
   // Disable caching to ensure fresh product pricing calculations
   if (event.node?.res) {
     event.node.res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate')
@@ -36,7 +47,7 @@ export default defineEventHandler(async (event) => {
   // ─── Fetch store credentials (RLS) ───────────────────────────────────────
   const { data: store, error: storeError } = await client
     .from('stores')
-    .select('seller_id, api_key, api_secret, marketplace')
+    .select('seller_id, marketplace')
     .eq('id', storeId)
     .single()
 
@@ -44,13 +55,18 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 404, statusMessage: 'Mağaza bulunamadı' })
   }
 
-  if (!store.api_key || !store.api_secret || !store.seller_id) {
-    throw createError({ statusCode: 422, statusMessage: 'Mağaza API kimlik bilgileri eksik.' })
+  // ─── Fetch decrypted credentials securely from Vault RPC ─────────────────
+  const { data: creds, error: credsError } = await client
+    .rpc('get_store_credentials', { p_store_id: storeId })
+    .single()
+
+  if (credsError || !creds || !creds.api_key || !creds.api_secret || !store.seller_id) {
+    throw createError({ statusCode: 422, statusMessage: 'Mağaza API kimlik bilgileri eksik veya yetkisiz.' })
   }
 
   // ─── Build Trendyol request ───────────────────────────────────────────────
   const credentials = Buffer
-    .from(`${store.api_key}:${store.api_secret}`)
+    .from(`${creds.api_key}:${creds.api_secret}`)
     .toString('base64')
 
   const pageSize = 100 // Fetch max elements per page
@@ -107,22 +123,35 @@ export default defineEventHandler(async (event) => {
       )
     }
 
-    // 3. Resolve all promises concurrently
+    // 3. Resolve all promises concurrently with allSettled to prevent single-page failures from failing the whole request
     if (fetchPromises.length > 0) {
-      const responses = await Promise.all(fetchPromises)
-      responses.forEach((res) => {
-        if (res && res.content) {
-          allProducts.push(...res.content)
+      const results = await Promise.allSettled(fetchPromises)
+      results.forEach((result, idx) => {
+        if (result.status === 'fulfilled') {
+          const res = result.value
+          if (res && res.content) {
+            allProducts.push(...res.content)
+          }
+        } else {
+          console.error(`[Products Proxy V2] Page fetch failed for queue item ${idx + 1}:`, result.reason)
         }
       })
     }
 
-    console.log('[Products Proxy V2] Parallel Fetch Success. Total aggregated products:', allProducts.length)
+    console.log('[Products Proxy V2] Parallel Fetch completed. Total aggregated products:', allProducts.length)
 
-    return {
+    const resultPayload = {
       content: allProducts,
       totalElements: allProducts.length
     }
+
+    // Cache the result
+    productsCache.set(storeId, {
+      data: resultPayload,
+      expiry: Date.now() + CACHE_TTL_MS
+    })
+
+    return resultPayload
   }
   catch (err: unknown) {
     const e = err as { statusCode?: number; statusMessage?: string; message?: string }

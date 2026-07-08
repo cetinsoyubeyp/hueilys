@@ -39,7 +39,7 @@ export default defineEventHandler(async (event) => {
       req.on('error', (e: any) => { reject(e) })
     })
   }
-  const { storeId, items, updateType } = body as {
+  const { storeId, items, updateType } = (body || {}) as {
     storeId: string
     updateType?: 'bulk' | 'single' | 'group'
     items: Array<{
@@ -50,11 +50,70 @@ export default defineEventHandler(async (event) => {
     }>
   }
 
-  if (!storeId || !items || !Array.isArray(items) || items.length === 0) {
-    throw createError({ statusCode: 400, statusMessage: 'Eksik veya hatalı parametreler (storeId ve items gereklidir)' })
+  // ─── Rate Limiting (Max 10 requests per minute) ──────────────────────────
+  const now = new Date()
+  const oneMinuteAgo = new Date(now.getTime() - 60 * 1000)
+
+  const { count: requestCount, error: rateError } = await client
+    .from('request_logs')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', user.id)
+    .eq('endpoint', '/api/trendyol/price-update')
+    .gte('created_at', oneMinuteAgo.toISOString())
+
+  if (rateError) {
+    console.error('[Rate Limit] DB query failed:', rateError.message)
+  } else if (requestCount !== null && requestCount >= 10) {
+    throw createError({ statusCode: 429, statusMessage: 'Çok fazla fiyat güncelleme isteği gönderdiniz. Lütfen bir dakika bekleyin.' })
   }
 
-  // ─── Deduct Credits Server-side ──────────────────────────────────────────
+  // Log this request
+  client.from('request_logs').insert({
+    user_id: user.id,
+    endpoint: '/api/trendyol/price-update'
+  }).then(({ error }) => {
+    if (error) console.error('[Rate Limit] Log insert failed:', error.message)
+  })
+
+  // Cleanup old logs asynchronously
+  const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000)
+  client.from('request_logs').delete().lt('created_at', oneHourAgo.toISOString()).then(({ error }) => {
+    if (error) console.error('[Rate Limit Cleanup] Failed:', error.message)
+  })
+
+  // ─── Input Validation ─────────────────────────────────────────────────────
+  if (!storeId || typeof storeId !== 'string') {
+    throw createError({ statusCode: 400, statusMessage: 'Geçersiz veya eksik storeId.' })
+  }
+  if (updateType !== undefined && !['single', 'bulk', 'group'].includes(updateType)) {
+    throw createError({ statusCode: 400, statusMessage: 'Geçersiz updateType.' })
+  }
+  if (!items || !Array.isArray(items) || items.length === 0) {
+    throw createError({ statusCode: 400, statusMessage: 'Eksik veya boş items listesi.' })
+  }
+  if (items.length > 200) {
+    throw createError({ statusCode: 400, statusMessage: 'Tek seferde en fazla 200 ürün güncellenebilir.' })
+  }
+
+  for (const item of items) {
+    if (!item.barcode || typeof item.barcode !== 'string') {
+      throw createError({ statusCode: 400, statusMessage: 'Her ürün için geçerli bir barkod gereklidir.' })
+    }
+    if (item.salePrice === undefined || typeof item.salePrice !== 'number' || item.salePrice <= 0 || item.salePrice > 1000000) {
+      throw createError({ statusCode: 400, statusMessage: `Barkod ${item.barcode} için geçersiz satış fiyatı (0-1.000.000 limitleri arasındadır).` })
+    }
+    if (item.listPrice === undefined || typeof item.listPrice !== 'number' || item.listPrice <= 0 || item.listPrice > 1000000) {
+      throw createError({ statusCode: 400, statusMessage: `Barkod ${item.barcode} için geçersiz liste fiyatı (0-1.000.000 limitleri arasındadır).` })
+    }
+    if (item.listPrice < item.salePrice) {
+      throw createError({ statusCode: 400, statusMessage: `Barkod ${item.barcode} için liste fiyatı satış fiyatından küçük olamaz.` })
+    }
+    if (item.quantity === undefined || !Number.isInteger(item.quantity) || item.quantity < 0 || item.quantity > 100000) {
+      throw createError({ statusCode: 400, statusMessage: `Barkod ${item.barcode} için stok adedi (quantity) geçersiz (0-100.000 aralığında olmalıdır).` })
+    }
+  }
+
+  // ─── Determine Cost & Verify Credits Early ────────────────────────────────
   const costs: Record<string, number> = {
     bulk: 30,
     single: 0.5,
@@ -63,15 +122,24 @@ export default defineEventHandler(async (event) => {
   const activeType = updateType || (items.length === 1 ? 'single' : 'bulk')
   const cost = costs[activeType] || 30
 
-  const { data: hasCredits, error: creditError } = await client.rpc('spend_credits', { cost })
-  if (creditError || !hasCredits) {
+  // Check current credits before making external calls
+  const { data: profile, error: profileError } = await client
+    .from('profiles')
+    .select('credits')
+    .single()
+
+  if (profileError || !profile) {
+    throw createError({ statusCode: 404, statusMessage: 'Kullanıcı profili bulunamadı.' })
+  }
+
+  if (profile.credits < cost) {
     throw createError({ statusCode: 402, statusMessage: 'Yetersiz kredi bakiyesi. İşlem gerçekleştirilemedi.' })
   }
 
-  // ─── Fetch store credentials (RLS) ───────────────────────────────────────
+  // ─── Fetch store info (RLS) ───────────────────────────────────────────────
   const { data: store, error: storeError } = await client
     .from('stores')
-    .select('seller_id, api_key, api_secret, marketplace')
+    .select('seller_id, marketplace')
     .eq('id', storeId)
     .single()
 
@@ -79,23 +147,26 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 404, statusMessage: 'Mağaza bulunamadı' })
   }
 
-  if (!store.api_key || !store.api_secret || !store.seller_id) {
-    throw createError({ statusCode: 422, statusMessage: 'Mağaza API kimlik bilgileri eksik.' })
+  // ─── Fetch decrypted credentials securely from Vault RPC ─────────────────
+  const { data: creds, error: credsError } = await client
+    .rpc('get_store_credentials', { p_store_id: storeId })
+    .single()
+
+  if (credsError || !creds || !creds.api_key || !creds.api_secret || !store.seller_id) {
+    throw createError({ statusCode: 422, statusMessage: 'Mağaza API kimlik bilgileri eksik veya yetkisiz.' })
   }
 
   // ─── Build Trendyol Credentials ───────────────────────────────────────────
   const credentials = Buffer
-    .from(`${store.api_key}:${store.api_secret}`)
+    .from(`${creds.api_key}:${creds.api_secret}`)
     .toString('base64')
 
   const url = `${TRENDYOL_INVENTORY_BASE}/${store.seller_id}/products/price-and-inventory`
 
   // ─── Call Trendyol API ────────────────────────────────────────────────────
   try {
-    console.log('[Price Update Proxy] Sending payload to Trendyol:', {
-      url,
-      itemCount: items.length,
-      sampleItem: items[0]
+    console.log('[Price Update Proxy] Sending payload to Trendyol...', {
+      itemCount: items.length
     })
 
     const response = await $fetch<any>(
@@ -110,8 +181,7 @@ export default defineEventHandler(async (event) => {
         body: {
           items: items.map(item => ({
             barcode: item.barcode,
-            // Fallback to stock/quantity 100 if not specified to prevent resetting active inventories
-            quantity: item.quantity !== undefined ? item.quantity : 100,
+            quantity: item.quantity,
             salePrice: Number(item.salePrice),
             listPrice: Number(item.listPrice)
           }))
@@ -119,7 +189,13 @@ export default defineEventHandler(async (event) => {
       }
     )
 
-    console.log('[Price Update Proxy] Success response from Trendyol:', response)
+    console.log('[Price Update Proxy] Success response received from Trendyol.')
+
+    // Deduct credits only after successful call
+    const { data: hasCredits, error: spendError } = await client.rpc('spend_credits', { cost })
+    if (spendError || !hasCredits) {
+      throw createError({ statusCode: 402, statusMessage: 'İşlem tamamlandı ancak kredi bakiyesi güncellenemedi.' })
+    }
 
     return {
       success: true,
@@ -128,12 +204,11 @@ export default defineEventHandler(async (event) => {
     }
   }
   catch (err: unknown) {
-    const e = err as { statusCode?: number; statusMessage?: string; message?: string; data?: any }
+    const e = err as { statusCode?: number; statusMessage?: string; message?: string }
     console.error('[Price Update Proxy] Trendyol Update API Error:', {
       statusCode: e.statusCode,
       statusMessage: e.statusMessage,
-      message: e.message,
-      responseData: e.data
+      message: e.message
     })
 
     throw createError({

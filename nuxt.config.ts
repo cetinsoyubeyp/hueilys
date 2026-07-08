@@ -34,7 +34,7 @@ export default defineNuxtConfig({
     cookieOptions: {
       maxAge:   60 * 60 * 8,   // 8 saat
       sameSite: 'lax',
-      secure:   false,          // dev için false, prod'da true
+      secure:   process.env.NODE_ENV === 'production',
     },
     clientOptions: {
       auth: {
@@ -112,6 +112,18 @@ export default defineNuxtConfig({
       appName: 'Hueilys',
       appVersion: '1.0.0',
     },
+  },
+
+  // Global Security Headers / CSP Rules
+  routeRules: {
+    '/**': {
+      headers: {
+        'X-Frame-Options': 'DENY',
+        'X-Content-Type-Options': 'nosniff',
+        'Referrer-Policy': 'strict-origin-when-cross-origin',
+        'Content-Security-Policy': "default-src 'self' https:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: https:; connect-src 'self' https: wss:; font-src 'self' https: data:; frame-ancestors 'none';",
+      }
+    }
   },
 
   // TypeScript

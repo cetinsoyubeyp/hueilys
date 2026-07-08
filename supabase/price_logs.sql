@@ -28,3 +28,6 @@ CREATE POLICY "Users can manage own price logs"
   FOR ALL
   USING (auth.uid() = user_id)
   WITH CHECK (auth.uid() = user_id);
+
+-- ─── İndeksler ────────────────────────────────────────────────
+CREATE INDEX IF NOT EXISTS idx_price_logs_composite ON public.price_logs(store_id, user_id, created_at DESC);

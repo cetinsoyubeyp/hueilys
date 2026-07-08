@@ -8,7 +8,7 @@ CREATE TABLE public.profiles (
   id          UUID        PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   full_name   TEXT,
   avatar_url  TEXT,
-  credits     NUMERIC     DEFAULT 100 NOT NULL,
+  credits     NUMERIC     DEFAULT 100 NOT NULL CONSTRAINT credits_nonneg CHECK (credits >= 0),
   created_at  TIMESTAMPTZ DEFAULT NOW() NOT NULL,
   updated_at  TIMESTAMPTZ DEFAULT NOW() NOT NULL
 );
@@ -59,3 +59,25 @@ CREATE POLICY "Users can update own profile"
 CREATE POLICY "Service role can insert profiles"
   ON public.profiles FOR INSERT
   WITH CHECK (auth.uid() = id);
+
+-- ─── 5. Request logs table (Rate Limiting) ────────────────────
+CREATE TABLE IF NOT EXISTS public.request_logs (
+  id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id     UUID        NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  endpoint    TEXT        NOT NULL,
+  created_at  TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+
+ALTER TABLE public.request_logs ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can insert own logs"
+  ON public.request_logs FOR INSERT
+  WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can view own logs"
+  ON public.request_logs FOR SELECT
+  USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can delete own logs"
+  ON public.request_logs FOR DELETE
+  USING (auth.uid() = user_id);

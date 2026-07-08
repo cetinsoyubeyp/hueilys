@@ -111,22 +111,17 @@ async function saveStore() {
     return
   }
 
-  const payload = {
-    user_id:     session.user.id,
-    marketplace: mp.id,
-    store_name:  formData.store_name ?? '',
-    seller_id:   formData.seller_id  ?? null,
-    api_key:     formData.api_key    ?? null,
-    api_secret:  formData.api_secret ?? null,
-  }
-  console.log('[AddStoreModal] payload:', payload)
-
   const { data, error: dbError } = await supabase
-    .from('stores')
-    .insert(payload)
-    .select()
+    .rpc('upsert_store', {
+      p_store_id:    null,
+      p_store_name:  formData.store_name ?? '',
+      p_seller_id:   formData.seller_id  ?? null,
+      p_api_key:     formData.api_key    ?? null,
+      p_api_secret:  formData.api_secret ?? null,
+      p_marketplace: mp.id
+    })
 
-  console.log('[AddStoreModal] result:', { data, dbError })
+  console.log('[AddStoreModal] result status:', dbError ? 'FAILED' : 'SUCCESS')
 
   isLoading.value = false
 

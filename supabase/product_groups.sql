@@ -23,3 +23,7 @@ CREATE POLICY "Users can manage own product groups"
   FOR ALL
   USING (auth.uid() = user_id)
   WITH CHECK (auth.uid() = user_id);
+
+-- ─── İndeksler ────────────────────────────────────────────────
+CREATE INDEX IF NOT EXISTS idx_product_groups_store_id ON public.product_groups(store_id);
+CREATE INDEX IF NOT EXISTS idx_product_groups_user_id ON public.product_groups(user_id);

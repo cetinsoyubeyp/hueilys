@@ -6,7 +6,7 @@
 import { CREDIT_COSTS } from '~/composables/useCredits'
 
 const emit = defineEmits<{ close: [] }>()
-const { balance, formattedBalance, addCredits } = useCredits()
+const { balance, formattedBalance } = useCredits()
 
 const packages = [
   { label: '50 Kredi',  amount: 50,  price: '₺19', badge: '' },
@@ -24,7 +24,7 @@ const costItems = [
 ]
 
 function handleAdd(amount: number) {
-  addCredits(amount)
+  alert(`Ödeme Entegrasyonu Bilgisi: \n\nSistem üretim moduna geçtiğinde, bu işlem sizi Stripe/iyzico ödeme sayfasına yönlendirecek ve başarılı ödeme sonrası ${amount} kredi hesabınıza yüklenecektir.`)
 }
 
 // Close on backdrop click

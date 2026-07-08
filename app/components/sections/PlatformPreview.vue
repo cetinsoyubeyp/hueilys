@@ -90,14 +90,14 @@ onMounted(async () => {
         <a
           href="#login"
           class="btn btn-primary px-8 py-3.5 text-base gap-2"
-          aria-label="Platforma ücretsiz başlayın"
+          aria-label="Başla"
         >
-          Ücretsiz Başla
+          Başla
           <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3"/>
           </svg>
         </a>
-        <p class="text-sm text-[var(--color-text-muted)] mt-3">Kredi kartı gerekmez · 14 gün ücretsiz deneme</p>
+        <p class="text-sm text-[var(--color-text-muted)] mt-3">Trendyol mağazanızla anında entegrasyon sağlayın</p>
       </div>
     </div>
   </section>

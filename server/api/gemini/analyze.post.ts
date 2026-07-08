@@ -41,16 +41,54 @@ export default defineEventHandler(async (event) => {
   }
   const { storeId, mode, customQuery, startDate: bodyStartDate, endDate: bodyEndDate } = body || {}
 
-  if (!storeId || !mode) {
-    throw createError({ statusCode: 400, statusMessage: 'storeId ve mode parametreleri gereklidir.' })
+  // ─── Rate Limiting (Max 5 requests per minute) ───────────────────────────
+  const nowTime = new Date()
+  const oneMinuteAgo = new Date(nowTime.getTime() - 60 * 1000)
+
+  const { count: requestCount, error: rateError } = await client
+    .from('request_logs')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', user.id)
+    .eq('endpoint', '/api/gemini/analyze')
+    .gte('created_at', oneMinuteAgo.toISOString())
+
+  if (rateError) {
+    console.error('[Rate Limit] DB query failed:', rateError.message)
+  } else if (requestCount !== null && requestCount >= 5) {
+    throw createError({ statusCode: 429, statusMessage: 'Çok fazla analiz isteği gönderdiniz. Lütfen bir dakika bekleyin.' })
   }
 
-  const validModes = ['returns', 'general', 'pricing']
-  if (!validModes.includes(mode)) {
+  // Log this request
+  client.from('request_logs').insert({
+    user_id: user.id,
+    endpoint: '/api/gemini/analyze'
+  }).then(({ error }) => {
+    if (error) console.error('[Rate Limit] Log insert failed:', error.message)
+  })
+
+  // Cleanup old logs asynchronously
+  const oneHourAgo = new Date(nowTime.getTime() - 60 * 60 * 1000)
+  client.from('request_logs').delete().lt('created_at', oneHourAgo.toISOString()).then(({ error }) => {
+    if (error) console.error('[Rate Limit Cleanup] Failed:', error.message)
+  })
+
+  // ─── Input Validation ─────────────────────────────────────────────────────
+  if (!storeId || typeof storeId !== 'string') {
+    throw createError({ statusCode: 400, statusMessage: 'storeId parametresi geçersiz veya eksik.' })
+  }
+  if (!mode || !['returns', 'general', 'pricing'].includes(mode)) {
     throw createError({ statusCode: 400, statusMessage: 'Geçersiz analiz modu.' })
   }
+  if (customQuery !== undefined) {
+    if (typeof customQuery !== 'string') {
+      throw createError({ statusCode: 400, statusMessage: 'customQuery bir metin olmalıdır.' })
+    }
+    if (customQuery.length > 500) {
+      throw createError({ statusCode: 400, statusMessage: 'Soru uzunluğu en fazla 500 karakter olabilir.' })
+    }
+  }
 
-  // ─── Deduct Credits Server-side ──────────────────────────────────────────
+  // ─── Determine Cost & Verify Credits Early ────────────────────────────────
   const costs: Record<string, number> = {
     returns: 10,
     general: 15,
@@ -58,21 +96,35 @@ export default defineEventHandler(async (event) => {
   }
   const cost = costs[mode] || 10
 
-  const { data: hasCredits, error: creditError } = await client.rpc('spend_credits', { cost })
-  if (creditError || !hasCredits) {
+  // Check current credits before making external calls
+  const { data: profile, error: profileError } = await client
+    .from('profiles')
+    .select('credits')
+    .single()
+
+  if (profileError || !profile) {
+    throw createError({ statusCode: 404, statusMessage: 'Kullanıcı profili bulunamadı.' })
+  }
+
+  if (profile.credits < cost) {
     throw createError({ statusCode: 402, statusMessage: 'Yetersiz kredi bakiyesi. İşlem gerçekleştirilemedi.' })
   }
 
   // 3. Fetch store credentials and info
   const { data: store, error: storeError } = await client
     .from('stores')
-    .select('store_name, seller_id, api_key, api_secret, marketplace')
+    .select('store_name, seller_id, marketplace')
     .eq('id', storeId)
     .single()
 
   if (storeError || !store) {
     throw createError({ statusCode: 404, statusMessage: 'Mağaza bulunamadı' })
   }
+
+  // ─── Fetch decrypted credentials securely from Vault RPC ─────────────────
+  const { data: creds, error: credsError } = await client
+    .rpc('get_store_credentials', { p_store_id: storeId })
+    .single()
 
   const storeName = store.store_name || 'E-Ticaret Mağazası'
   let products: any[] = []
@@ -103,8 +155,8 @@ export default defineEventHandler(async (event) => {
   console.log(`[Gemini Analyze] Window: ${new Date(windowStart).toISOString()} → ${new Date(windowEnd).toISOString()} (${windowLabel})`)
 
   // 4. Fetch live data — products, orders, AND claims (each from its own endpoint)
-  if (store.api_key && store.api_secret && store.seller_id && store.marketplace === 'trendyol') {
-    const credentials = Buffer.from(`${store.api_key}:${store.api_secret}`).toString('base64')
+  if (creds && creds.api_key && creds.api_secret && store.seller_id && store.marketplace === 'trendyol') {
+    const credentials = Buffer.from(`${creds.api_key}:${creds.api_secret}`).toString('base64')
     const commonHeaders = {
       Authorization: `Basic ${credentials}`,
       'User-Agent': `${store.seller_id} - SelfIntegration`,
@@ -715,13 +767,19 @@ Aktif ürünlerinizin kâr ve rakip fiyat dengesini inceledim:
       }
     }
 
+    // Deduct credits only after successful simulation
+    const { data: hasCredits, error: spendError } = await client.rpc('spend_credits', { cost })
+    if (spendError || !hasCredits) {
+      throw createError({ statusCode: 402, statusMessage: 'İşlem tamamlandı ancak kredi bakiyesi güncellenemedi.' })
+    }
+
     return { response: simulatedResponse }
   }
 
   // 8. Call live Gemini API if key is present
   try {
     // Use gemini-2.5-flash for best speed/quality ratio
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`
+    const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent'
 
     // Separate system instruction from user content for proper Gemini API usage
     const geminiPayload = {
@@ -748,24 +806,33 @@ Aktif ürünlerinizin kâr ve rakip fiyat dengesini inceledim:
     const res = await $fetch<any>(url, {
       method: 'POST',
       body: geminiPayload,
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey
+      },
       // 60 second timeout for complex analyses
       timeout: 60000
     })
 
     const textResponse = res?.candidates?.[0]?.content?.parts?.[0]?.text
     if (!textResponse) {
-      console.error('[Gemini API] Empty response. Full API response:', JSON.stringify(res).substring(0, 500))
+      console.error('[Gemini API] Empty response.')
       throw createError({ statusCode: 502, statusMessage: 'Gemini API boş yanıt döndürdü. Lütfen tekrar deneyin.' })
     }
 
     console.log(`[Gemini API] Success. Response length: ${textResponse.length} chars`)
+
+    // Deduct credits only after successful call
+    const { data: hasCredits, error: spendError } = await client.rpc('spend_credits', { cost })
+    if (spendError || !hasCredits) {
+      throw createError({ statusCode: 402, statusMessage: 'İşlem tamamlandı ancak kredi bakiyesi güncellenemedi.' })
+    }
+
     return { response: textResponse }
   } 
   catch (err: any) {
-    // If already a createError, re-throw as-is
     if (err.statusCode) throw err
-    console.error('[Gemini API Call Error]', err.message, err.data)
+    console.error('[Gemini API Call Error]')
     throw createError({
       statusCode: 502,
       statusMessage: `Gemini API hatası: ${err.message || 'Bilinmeyen bir hata oluştu.'}`

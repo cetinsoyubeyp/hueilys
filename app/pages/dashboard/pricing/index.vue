@@ -7,7 +7,10 @@
 
 import { useProducts } from '~/composables/useProducts'
 
-definePageMeta({ layout: 'dashboard' })
+definePageMeta({
+  layout: 'dashboard',
+  middleware: 'auth'
+})
 
 // Credit system
 const { canAfford, spend, balance, CREDIT_COSTS, fetchCredits } = useCredits()
@@ -152,19 +155,28 @@ async function loadLogs() {
       .from('price_logs')
       .select('*')
       .eq('store_id', activeStoreId.value)
-      .order('date', { ascending: false })
+      .order('created_at', { ascending: false })
 
     if (dbErr) throw dbErr
-    priceLogs.value = (data || []).map(row => ({
-      id: row.id,
-      date: row.date,
-      title: row.title,
-      barcode: row.barcode,
-      type: row.type as 'Bireysel' | 'Toplu',
-      oldPrice: sanitize(row.old_price),
-      newPrice: sanitize(row.new_price),
-      status: row.status
-    }))
+    priceLogs.value = (data || []).map(row => {
+      let formattedDate = row.date
+      if (row.created_at) {
+        const d = new Date(row.created_at)
+        const timeStr = d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })
+        const dateStr = d.toLocaleDateString('tr-TR', { day: '2-digit', month: 'short' })
+        formattedDate = `${timeStr} ${dateStr}`
+      }
+      return {
+        id: row.id,
+        date: formattedDate,
+        title: row.title,
+        barcode: row.barcode,
+        type: row.type as 'Bireysel' | 'Toplu',
+        oldPrice: sanitize(row.old_price),
+        newPrice: sanitize(row.new_price),
+        status: row.status
+      }
+    })
   } catch (err: any) {
     // Graceful fallback to LocalStorage if Supabase table is not generated yet
     console.warn('[Price Logs] DB table not found or offline. Using localStorage fallback:', err.message)

@@ -16,7 +16,7 @@ export function useOrders() {
 
   // ─── Filters ─────────────────────────────────────────────────────────────────
   const page        = ref(0)
-  const size        = ref(20)
+  const size        = ref(200)
   const status      = ref('all')
   const orderNumber = ref('')
   // Manual date overrides (used in the list tab's date pickers; empty = use global range)

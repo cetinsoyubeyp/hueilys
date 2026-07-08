@@ -29,8 +29,46 @@ const {
 // Global date range
 const { startTs, endTs, shortLabel, selectedRange } = useDateRange()
 
-// Son 14 günlük analizler için
-size.value = 100
+// Local pagination for the table list tab
+const localPage = ref(0)
+const localPageSize = ref(20)
+
+const localTotalPages = computed(() => {
+  return Math.ceil(orders.value.length / localPageSize.value)
+})
+
+const paginatedOrders = computed(() => {
+  const start = localPage.value * localPageSize.value
+  const end = start + localPageSize.value
+  return orders.value.slice(start, end)
+})
+
+function goToLocalPage(p: number) {
+  if (p < 0 || p >= localTotalPages.value) return
+  localPage.value = p
+}
+
+watch(orders, () => {
+  localPage.value = 0
+})
+
+const visibleLocalPages = computed(() => {
+  const total = localTotalPages.value
+  const cur   = localPage.value
+  const range: (number | '...')[] = []
+
+  if (total <= 7) {
+    for (let i = 0; i < total; i++) range.push(i)
+    return range
+  }
+
+  range.push(0)
+  if (cur > 2) range.push('...')
+  for (let i = Math.max(1, cur - 1); i <= Math.min(total - 2, cur + 1); i++) range.push(i)
+  if (cur < total - 3) range.push('...')
+  range.push(total - 1)
+  return range
+})
 
 const activeTab = ref<'analytics' | 'list'>('analytics')
 
@@ -83,12 +121,6 @@ watch(orderNumber, () => {
   }, 400)
 })
 
-function goToPage(p: number) {
-  if (p < 0 || p >= totalPages.value) return
-  page.value = p
-  fetchOrders(selectedStore.value!.id, startTs.value, endTs.value)
-}
-
 function handleRefresh() {
   if (selectedStore.value) fetchOrders(selectedStore.value.id, startTs.value, endTs.value)
 }
@@ -106,23 +138,6 @@ const statusOptions = [
   { value: 'Returned',        label: 'İade Edildi' },
 ]
 
-const visiblePages = computed(() => {
-  const total = totalPages.value
-  const cur   = page.value
-  const range: (number | '...')[] = []
-
-  if (total <= 7) {
-    for (let i = 0; i < total; i++) range.push(i)
-    return range
-  }
-
-  range.push(0)
-  if (cur > 2) range.push('...')
-  for (let i = Math.max(1, cur - 1); i <= Math.min(total - 2, cur + 1); i++) range.push(i)
-  if (cur < total - 3) range.push('...')
-  range.push(total - 1)
-  return range
-})
 </script>
 
 <template>
@@ -365,38 +380,38 @@ const visiblePages = computed(() => {
         </div>
 
         <!-- Orders table -->
-        <OrdersTable v-else-if="!isLoading" :orders="orders" />
+        <OrdersTable v-else-if="!isLoading" :orders="paginatedOrders" />
 
         <!-- Pagination -->
-        <div v-if="totalPages > 1" class="flex items-center justify-between mt-4">
+        <div v-if="localTotalPages > 1" class="flex items-center justify-between mt-4">
           <p class="text-xs text-[var(--color-text-muted)]">
-            Sayfa {{ page + 1 }} / {{ totalPages }} · {{ totalElements.toLocaleString('tr-TR') }} sipariş
+            Sayfa {{ localPage + 1 }} / {{ localTotalPages }} · {{ orders.length.toLocaleString('tr-TR') }} sipariş
           </p>
           <nav class="flex items-center gap-1" aria-label="Sayfalama">
             <!-- Prev -->
             <button
               type="button"
               class="w-8 h-8 rounded-lg flex items-center justify-center text-sm text-[var(--color-text-muted)] hover:bg-white hover:text-[var(--color-primary)] border border-transparent hover:border-[var(--color-border)] transition-all disabled:opacity-40"
-              :disabled="page === 0"
+              :disabled="localPage === 0"
               aria-label="Önceki sayfa"
-              @click="goToPage(page - 1)"
+              @click="goToLocalPage(localPage - 1)"
             >
               <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
             </button>
 
             <!-- Page numbers -->
-            <template v-for="(p, i) in visiblePages" :key="i">
+            <template v-for="(p, i) in visibleLocalPages" :key="i">
               <span v-if="p === '...'" class="w-8 text-center text-sm text-[var(--color-text-muted)]">…</span>
               <button
                 v-else
                 type="button"
                 class="w-8 h-8 rounded-lg flex items-center justify-center text-sm font-medium transition-all"
-                :class="p === page
+                :class="p === localPage
                   ? 'bg-[var(--color-primary)] text-white'
                   : 'text-[var(--color-text-secondary)] hover:bg-white hover:border border-[var(--color-border)]'"
                 :aria-label="`Sayfa ${(p as number) + 1}`"
-                :aria-current="p === page ? 'page' : undefined"
-                @click="goToPage(p as number)"
+                :aria-current="p === localPage ? 'page' : undefined"
+                @click="goToLocalPage(p as number)"
               >
                 {{ (p as number) + 1 }}
               </button>
@@ -406,9 +421,9 @@ const visiblePages = computed(() => {
             <button
               type="button"
               class="w-8 h-8 rounded-lg flex items-center justify-center text-sm text-[var(--color-text-muted)] hover:bg-white hover:text-[var(--color-primary)] border border-transparent hover:border-[var(--color-border)] transition-all disabled:opacity-40"
-              :disabled="page >= totalPages - 1"
+              :disabled="localPage >= localTotalPages - 1"
               aria-label="Sonraki sayfa"
-              @click="goToPage(page + 1)"
+              @click="goToLocalPage(localPage + 1)"
             >
               <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
             </button>

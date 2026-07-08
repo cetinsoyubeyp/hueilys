@@ -99,6 +99,9 @@ export function useAuth() {
   async function signOut() {
     isLoading.value = true
     await supabase.auth.signOut()
+    if (import.meta.client) {
+      localStorage.removeItem('hueilys_credits')
+    }
     isLoading.value = false
   }
 
@@ -108,7 +111,7 @@ export function useAuth() {
     const errorMap: Record<string, string> = {
       'Invalid login credentials': 'Incorrect email or password.',
       'Email not confirmed': 'Please confirm your email address first.',
-      'User already registered': 'An account with this email already exists.',
+      'User already registered': 'Registration failed. Please check your credentials or try logging in.',
       'Password should be at least 6 characters': 'Password must be at least 6 characters.',
       'Unable to validate email address: invalid format': 'Please enter a valid email address.',
       'signup_disabled': 'New registrations are temporarily disabled.',

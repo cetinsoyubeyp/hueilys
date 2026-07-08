@@ -29,23 +29,14 @@ onMounted(async () => {
 
 <template>
   <div ref="contentRef" class="flex flex-col items-start gap-6 max-w-xl">
-    <!-- Badge -->
-    <div
-      data-animate
-      class="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[var(--color-primary-lightest)] border border-[var(--color-primary-lighter)] text-xs font-semibold text-[var(--color-primary)] opacity-0"
-    >
-      <span class="w-1.5 h-1.5 rounded-full bg-[var(--color-primary)] animate-pulse" aria-hidden="true" />
-      Genel beta'da — 14 gün ücretsiz
-    </div>
-
     <!-- Main Headline -->
     <h1
       data-animate
       class="text-display text-[var(--color-text-primary)] opacity-0"
     >
-      Tüm
-      <span class="gradient-text-blue">&nbsp;e-ticaretinizi&nbsp;</span>
-      tek yerden yönetin.
+      E-Ticaret Fiyat ve Kârınızı
+      <span class="gradient-text-blue">&nbsp;Akıllıca&nbsp;</span>
+      Yönetin.
     </h1>
 
     <!-- Description -->
@@ -53,7 +44,7 @@ onMounted(async () => {
       data-animate
       class="text-lg text-[var(--color-text-secondary)] leading-relaxed opacity-0"
     >
-      Geliri takip edin, siparişleri yönetin, stoku optimize edin ve yapay zeka destekli analizler çalıştırın — hepsi tek, güzel bir panelden. Modern e-ticaret satıcıları için tasarlandı.
+      Pazaryeri mağazalarınızın fiyatlarını canlı optimize edin. Yapay zeka destekli iade ve büyüme analizleri ile kârlılığınızı artırın — abonelik yok, sadece kullandığınız kadar kredi harcayın.
     </p>
 
     <!-- CTA Buttons -->
@@ -61,24 +52,13 @@ onMounted(async () => {
       <a
         href="#login"
         class="btn btn-primary px-6 py-3 text-base gap-2"
-        aria-label="Ücretsiz başla — kredi kartı gerekmez"
+        aria-label="Başla"
       >
-        Ücretsiz Başla
+        Başla
         <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3"/>
         </svg>
       </a>
-      <button
-        type="button"
-        class="btn btn-ghost px-6 py-3 text-base gap-2"
-        aria-label="Ürün demo videosunu izle"
-      >
-        <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-          <circle cx="12" cy="12" r="10" stroke-width="1.75"/>
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M10 8l6 4-6 4V8z" fill="currentColor"/>
-        </svg>
-        Demo İzle
-      </button>
     </div>
 
     <!-- Social Proof -->

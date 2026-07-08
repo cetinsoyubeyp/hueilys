@@ -14,6 +14,7 @@ export interface TrendyolProduct {
   listPrice: number
   salePrice: number
   commissionRate: number
+  quantity: number
   images?: TrendyolProductImage[]
 }
 

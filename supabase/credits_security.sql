@@ -4,35 +4,23 @@
 -- ============================================================
 
 -- ─── 1. RPC: spend_credits (SECURITY DEFINER) ──────────────────
--- Deducts credits securely from server-side without direct update access
+-- Deducts credits securely from server-side without direct update access (atomic & safe)
 CREATE OR REPLACE FUNCTION public.spend_credits(cost NUMERIC)
 RETURNS BOOLEAN AS $$
 DECLARE
-  current_credits NUMERIC;
-  new_credits NUMERIC;
+  ok BOOLEAN;
 BEGIN
-  -- Get current user profile credits
-  SELECT credits INTO current_credits 
-  FROM public.profiles 
-  WHERE id = auth.uid();
+  UPDATE public.profiles
+     SET credits = ROUND((credits - cost), 2)
+   WHERE id = auth.uid() AND credits >= cost
+  RETURNING true INTO ok;
   
-  IF current_credits IS NULL OR current_credits < cost THEN
-    RETURN FALSE;
-  END IF;
-  
-  new_credits := ROUND((current_credits - cost), 2);
-  
-  -- Perform update (SECURITY DEFINER bypasses direct UPDATE policies)
-  UPDATE public.profiles 
-  SET credits = new_credits
-  WHERE id = auth.uid();
-  
-  RETURN TRUE;
+  RETURN COALESCE(ok, false);
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- ─── 2. RPC: add_credits (SECURITY DEFINER) ─────────────────────
--- Adds credits securely to the user profile
+-- Adds credits securely to the user profile (Revoked from public/client)
 CREATE OR REPLACE FUNCTION public.add_credits(amount NUMERIC)
 RETURNS NUMERIC AS $$
 DECLARE
@@ -57,6 +45,9 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
+-- Revoke direct execution permissions from client-facing roles
+REVOKE EXECUTE ON FUNCTION public.add_credits(numeric) FROM public, anon, authenticated;
+
 -- ─── 3. Trigger: Protect profiles.credits from direct updates ─────
 CREATE OR REPLACE FUNCTION public.protect_credits_column()
 RETURNS TRIGGER AS $$
@@ -77,3 +68,6 @@ CREATE TRIGGER tr_protect_credits
   BEFORE UPDATE ON public.profiles
   FOR EACH ROW
   EXECUTE FUNCTION public.protect_credits_column();
+
+-- Revoke direct credits column UPDATE privileges from client roles
+REVOKE UPDATE (credits) ON public.profiles FROM public, anon, authenticated;

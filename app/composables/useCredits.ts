@@ -94,28 +94,8 @@ export function useCredits() {
       }
       return false
     } catch (e: any) {
-      console.warn('[Credits spend] RPC failed, updating locally:', e.message)
-      const nextBalance = Math.round((balance.value - cost) * 100) / 100
-      balance.value = nextBalance
-      localStorage.setItem(STORAGE_KEY, String(nextBalance))
-      return true
-    }
-  }
-
-  /** Kredi ekle (Güvenli RPC üzerinden) */
-  async function addCredits(amount: number) {
-    try {
-      const { data, error } = await supabase.rpc('add_credits', { amount })
-      if (error) throw error
-      if (data !== null) {
-        balance.value = Number(data)
-        localStorage.setItem(STORAGE_KEY, String(data))
-      }
-    } catch (e: any) {
-      console.warn('[Credits add] RPC failed, updating locally:', e.message)
-      const nextBalance = Math.round((balance.value + amount) * 100) / 100
-      balance.value = nextBalance
-      localStorage.setItem(STORAGE_KEY, String(nextBalance))
+      console.error('[Credits spend] RPC failed:', e.message)
+      return false
     }
   }
 
@@ -132,7 +112,6 @@ export function useCredits() {
     isSyncing,
     canAfford,
     spend,
-    addCredits,
     fetchCredits,
     CREDIT_COSTS,
   }

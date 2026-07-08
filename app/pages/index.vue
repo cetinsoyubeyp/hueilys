@@ -33,8 +33,8 @@ useHead({
         offers: {
           '@type': 'Offer',
           price: '0',
-          priceCurrency: 'USD',
-          description: '14-day free trial, no credit card required.',
+          priceCurrency: 'TRY',
+          description: 'Pay-as-you-go credit-based pricing model.',
         },
       }),
     },
@@ -49,6 +49,7 @@ useHead({
     <main id="main-content">
       <HeroSection />
       <FeaturesSection />
+      <PricingSection />
       <PlatformPreview />
     </main>
 

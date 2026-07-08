@@ -52,23 +52,25 @@ function closeMenu() {
       style="height: var(--navbar-height)"
       aria-label="Main navigation"
     >
-      <!-- Logo -->
-      <a
-        href="#home"
-        class="flex items-center gap-2 font-bold text-xl text-[var(--color-text-primary)] no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)] rounded-md"
-        :aria-label="`${APP_NAME} — Home`"
-      >
-        <div class="w-8 h-8 rounded-lg bg-[var(--color-primary)] flex items-center justify-center flex-shrink-0">
-          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
-            <path d="M3 13L6.5 7.5L9.5 10.5L13 5L15 13" stroke="white" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>
-            <circle cx="15" cy="5" r="1.25" fill="#93C5FD"/>
-          </svg>
-        </div>
-        <span>{{ APP_NAME }}</span>
-      </a>
+      <!-- Logo wrapped for desktop centering -->
+      <div class="flex md:flex-1">
+        <a
+          href="#home"
+          class="flex items-center gap-2 font-bold text-xl text-[var(--color-text-primary)] no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)] rounded-md"
+          :aria-label="`${APP_NAME} — Home`"
+        >
+          <div class="w-8 h-8 rounded-lg bg-[var(--color-primary)] flex items-center justify-center flex-shrink-0">
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+              <path d="M3 13L6.5 7.5L9.5 10.5L13 5L15 13" stroke="white" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>
+              <circle cx="15" cy="5" r="1.25" fill="#93C5FD"/>
+            </svg>
+          </div>
+          <span>{{ APP_NAME }}</span>
+        </a>
+      </div>
 
       <!-- Desktop Nav Links -->
-      <ul class="hidden md:flex items-center gap-1 list-none m-0 p-0" role="list">
+      <ul class="hidden md:flex items-center justify-center gap-1 list-none m-0 p-0" role="list">
         <li v-for="item in NAV_ITEMS" :key="item.label">
           <a
             :href="item.href"
@@ -79,21 +81,10 @@ function closeMenu() {
         </li>
       </ul>
 
-      <!-- Desktop CTA Buttons -->
-      <div class="hidden md:flex items-center gap-2">
-        <a
-          href="#login"
-          class="btn btn-ghost px-4 py-2 text-sm"
-        >
-          Login
-        </a>
-        <a
-          href="#login"
-          class="btn btn-primary px-4 py-2 text-sm"
-        >
-          Register
-        </a>
-      </div>
+      <!-- Desktop Spacer for centering -->
+      <div class="hidden md:block md:flex-1" aria-hidden="true" />
+
+      <!-- Desktop CTA Buttons Removed -->
 
       <!-- Mobile Hamburger -->
       <button
@@ -139,10 +130,7 @@ function closeMenu() {
             </a>
           </li>
         </ul>
-        <div class="flex flex-col gap-2">
-          <a href="#login" class="btn btn-ghost w-full text-sm" @click="closeMenu">Login</a>
-          <a href="#login" class="btn btn-primary w-full text-sm" @click="closeMenu">Register</a>
-        </div>
+        <!-- Mobile Actions Removed -->
       </div>
     </Transition>
   </header>
