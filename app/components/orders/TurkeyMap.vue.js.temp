@@ -1,0 +1,228 @@
+const fs = require('fs');
+const path = require('path');
+
+const srcPath = 'C:\\Users\\Çetin\\.gemini\\antigravity\\brain\\c9513dba-ea80-4992-b438-2d27e85e9a28\\.system_generated\\steps\\844\\content.md';
+const destPath = 'C:\\Users\\Çetin\\Desktop\\Hueilys\\app\\components\\orders\\TurkeyMap.vue';
+
+try {
+  const content = fs.readFileSync(srcPath, 'utf8');
+
+  // Extract the SVG content
+  const svgStartIdx = content.indexOf('<svg');
+  const svgEndIdx = content.indexOf('</svg>') + 6;
+
+  if (svgStartIdx === -1 || svgEndIdx === -1) {
+    console.error('Could not find SVG inside the downloaded file!');
+    process.exit(1);
+  }
+
+  let svgContent = content.substring(svgStartIdx, svgEndIdx);
+
+  // Clean the SVG attribute syntax if needed
+  // We want to add :class="getCityClass('id_here')" to each <g id="..."> tag inside the turkey group
+  // Regex to match <g id="cityName" and add class attribute
+  svgContent = svgContent.replace(/<g id="([a-z0-9]+)"/gi, (match, cityId) => {
+    if (cityId === 'turkey' || cityId === 'svg-turkey') {
+      return match;
+    }
+    return `<g id="${cityId}" :class="['turkey-city-group', getCityClass('${cityId}')]"`;
+  });
+
+  const vueComponentContent = `<script setup lang="ts">
+import { ref, computed } from 'vue'
+
+const props = defineProps<{
+  citySales: Record<string, { productName: string; quantity: number }>
+}>()
+
+const hoveredCity = ref<{
+  id: string;
+  name: string;
+  code: string;
+  productName: string;
+  quantity: number;
+  x: number;
+  y: number;
+} | null>(null)
+
+// Normalize city names from database to match SVG group IDs
+function getCityId(cityName: string): string {
+  if (!cityName) return ''
+  return cityName
+    .replace(/İ/g, 'i')
+    .replace(/ı/g, 'i')
+    .toLowerCase()
+    .replace(/ğ/g, 'g')
+    .replace(/ü/g, 'u')
+    .replace(/ş/g, 's')
+    .replace(/ö/g, 'o')
+    .replace(/ç/g, 'c')
+    .replace(/[^a-z0-9]/g, '')
+}
+
+// Map of normalized SVG ID -> Display Name
+const CITY_DISPLAY_NAMES: Record<string, string> = {
+  adana: 'Adana', adiyaman: 'Adıyaman', afyonkarahisar: 'Afyonkarahisar', agri: 'Ağrı',
+  amasya: 'Amasya', ankara: 'Ankara', antalya: 'Antalya', artvin: 'Artvin',
+  aydin: 'Aydın', balikesir: 'Balıkesir', bilecik: 'Bilecik', bingol: 'Bingöl',
+  bitlis: 'Bitlis', bolu: 'Bolu', burdur: 'Burdur', bursa: 'Bursa',
+  canakkale: 'Çanakkale', cankiri: 'Çankırı', corum: 'Çorum', denizli: 'Denizli',
+  diyarbakir: 'Diyarbakır', edirne: 'Edirne', elazig: 'Elazığ', erzincan: 'Erzincan',
+  erzurum: 'Erzurum', eskisehir: 'Eskişehir', gaziantep: 'Gaziantep', giresun: 'Giresun',
+  gumushane: 'Gümüşhane', hakkari: 'Hakkari', hatay: 'Hatay', isparta: 'Isparta',
+  mersin: 'Mersin', istanbul: 'İstanbul', izmir: 'İzmir', kars: 'Kars',
+  kastamonu: 'Kastamonu', kayseri: 'Kayseri', kirklareli: 'Kırklareli', kirsehir: 'Kırşehir',
+  kocaeli: 'Kocaeli', konya: 'Konya', kutahya: 'Kütahya', malatya: 'Malatya',
+  manisa: 'Manisa', kahramanmaras: 'Kahramanmaraş', mardin: 'Mardin', mugla: 'Muğla',
+  mus: 'Muş', nevsehir: 'Nevşehir', nigde: 'Niğde', ordu: 'Ordu',
+  rize: 'Rize', sakarya: 'Sakarya', samsun: 'Samsun', siirt: 'Siirt',
+  sinop: 'Sinop', sivas: 'Sivas', tekirdag: 'Tekirdağ', tokat: 'Tokat',
+  trabzon: 'Trabzon', tunceli: 'Tunceli', sanliurfa: 'Şanlıurfa', usak: 'Uşak',
+  van: 'Van', yozgat: 'Yozgat', zonguldak: 'Zonguldak', aksaray: 'Aksaray',
+  bayburt: 'Bayburt', karaman: 'Karaman', kirikkale: 'Kırıkkale', batman: 'Batman',
+  sirnak: 'Şırnak', bartin: 'Bartın', ardahan: 'Ardahan', igdir: 'Iğdır',
+  yalova: 'Yalova', karabuk: 'Karabük', kilis: 'Kilis', osmaniye: 'Osmaniye',
+  duzce: 'Düzce'
+}
+
+// Convert prop city sales to lowercase key map for fast lookups
+const normalizedSales = computed(() => {
+  const map: Record<string, { productName: string; quantity: number }> = {}
+  Object.entries(props.citySales).forEach(([cityName, data]) => {
+    const id = getCityId(cityName)
+    if (id) {
+      map[id] = data
+    }
+  })
+  return map
+})
+
+function getCityClass(cityId: string) {
+  const sales = normalizedSales.value[cityId]
+  if (sales && sales.quantity > 0) {
+    return 'city-active'
+  }
+  return 'city-inactive'
+}
+
+function handleMouseMove(e: MouseEvent) {
+  const target = e.target as SVGElement
+  const parentGroup = target.parentElement as SVGElement
+  
+  if (parentGroup && parentGroup.classList.contains('turkey-city-group')) {
+    const cityId = parentGroup.id
+    const displayName = CITY_DISPLAY_NAMES[cityId] || parentGroup.getAttribute('data-city-name') || cityId
+    const cityCode = parentGroup.getAttribute('data-city-code') || ''
+    const sales = normalizedSales.value[cityId] || { productName: 'Satış Yok', quantity: 0 }
+    
+    // Position the tooltip near the mouse cursor
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    const x = e.clientX - rect.left
+    const y = e.clientY - rect.top
+    
+    hoveredCity.value = {
+      id: cityId,
+      name: displayName,
+      code: cityCode,
+      productName: sales.productName,
+      quantity: sales.quantity,
+      x,
+      y
+    }
+  } else {
+    hoveredCity.value = null
+  }
+}
+
+function handleMouseLeave() {
+  hoveredCity.value = null
+}
+</script>
+
+<template>
+  <div class="relative w-full overflow-hidden select-none" @mouseleave="handleMouseLeave">
+    <!-- SVG Interactive Turkey Map -->
+    <div class="w-full h-full" @mousemove="handleMouseMove">
+      ${svgContent}
+    </div>
+
+    <!-- Floating Tooltip -->
+    <div
+      v-if="hoveredCity"
+      class="absolute z-50 pointer-events-none bg-slate-900/95 backdrop-blur-md text-white rounded-2xl p-3.5 shadow-2xl border border-slate-700/80 animate-in fade-in zoom-in-95 duration-100 max-w-xs space-y-1.5"
+      :style="{
+        left: hoveredCity.x + 15 + 'px',
+        top: hoveredCity.y + 15 + 'px'
+      }"
+    >
+      <div class="flex items-center justify-between gap-4">
+        <span class="text-xs font-black tracking-tight text-white flex items-center gap-1.5">
+          <span class="w-2 h-2 rounded-full bg-blue-500"></span>
+          {{ hoveredCity.name }}
+        </span>
+        <span class="text-[10px] font-mono text-slate-400 bg-slate-800 px-1.5 py-0.5 rounded-md">
+          Plaka: {{ hoveredCity.code }}
+        </span>
+      </div>
+      <div class="border-t border-slate-800/80 pt-1.5 space-y-0.5">
+        <template v-if="hoveredCity.quantity > 0">
+          <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">En Çok Satan Ürün</p>
+          <p class="text-xs font-bold text-blue-300 truncate" :title="hoveredCity.productName">
+            {{ hoveredCity.productName }}
+          </p>
+          <p class="text-xs font-black text-emerald-400 mt-1">
+            Toplam Satış: {{ hoveredCity.quantity }} Adet
+          </p>
+        </template>
+        <template v-else>
+          <p class="text-xs text-slate-400 italic">Bu şehirde henüz satış bulunmuyor.</p>
+        </template>
+      </div>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+#svg-turkey {
+  width: 100%;
+  height: auto;
+  max-height: 480px;
+  display: block;
+}
+
+#svg-turkey path {
+  transition: fill 0.25s cubic-bezier(0.4, 0, 0.2, 1), filter 0.25s ease;
+  stroke: #ffffff;
+  stroke-width: 1;
+  stroke-linejoin: round;
+}
+
+/* Inactive cities - Default soft gray */
+.city-inactive path {
+  fill: #f1f5f9 !important;
+}
+
+/* Active cities - Soft blue gradient density */
+.city-active path {
+  fill: #bfdbfe !important;
+  stroke: #93c5fd;
+  stroke-width: 1.2;
+}
+
+/* Hover highlights in rich blue */
+.turkey-city-group:hover path {
+  fill: #3b82f6 !important;
+  filter: drop-shadow(0 4px 6px rgba(59, 130, 246, 0.2));
+  stroke: #2563eb;
+  stroke-width: 1.5;
+  cursor: pointer;
+}
+</style>
+`;
+
+  fs.writeFileSync(destPath, vueComponentContent, 'utf8');
+  console.log('Successfully generated TurkeyMap.vue component!');
+} catch (err) {
+  console.error('Error during generation:', err.message);
+  process.exit(1);
+}

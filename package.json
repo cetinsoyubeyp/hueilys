@@ -1,0 +1,39 @@
+{
+  "name": "ecommerce-analytics-platform",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "nuxt build",
+    "dev": "nuxt dev",
+    "generate": "nuxt generate",
+    "preview": "nuxt preview",
+    "postinstall": "nuxt prepare",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "type-check": "nuxt typecheck"
+  },
+  "dependencies": {
+    "@nuxtjs/supabase": "^2.0.9",
+    "@pinia/nuxt": "^0.10.1",
+    "@tresjs/core": "^4.3.3",
+    "@vueuse/core": "^13.3.0",
+    "@vueuse/nuxt": "^13.3.0",
+    "gsap": "^3.13.0",
+    "motion": "^11.18.2",
+    "nuxt": "^4.4.8",
+    "pinia": "^3.0.2",
+    "three": "^0.177.0",
+    "vue": "^3.5.39",
+    "vue-router": "^5.1.0"
+  },
+  "devDependencies": {
+    "@nuxt/eslint": "^1.4.1",
+    "@tailwindcss/vite": "^4.1.11",
+    "@types/three": "^0.177.0",
+    "eslint": "^9.30.0",
+    "prettier": "^3.5.3",
+    "tailwindcss": "^4.1.11",
+    "typescript": "^5.8.3"
+  }
+}
